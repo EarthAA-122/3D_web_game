@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D Procedural Platformer with Limits</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<style>
+body { margin:0; overflow:hidden; background:#000; }
+#controls {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  display: grid;
+  grid-template-columns: 60px 60px 60px;
+  grid-template-rows: 60px 60px;
+  gap: 6px;
+}
+.btn {
+  background: rgba(255,255,255,0.15);
+  color:white;
+  font-size:18px;
+  border-radius:10px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  user-select:none;
+}
+#jump {
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  width: 90px;
+  height: 60px;
+  font-size: 18px;
+}
+</style>
+</head>
+<body>
+
+<div id="controls">
+  <div></div>
+  <div class="btn" data-key="forward">▲</div>
+  <div></div>
+  <div class="btn" data-key="left">◀</div>
+  <div class="btn" data-key="back">▼</div>
+  <div class="btn" data-key="right">▶</div>
+</div>
+<div id="jump" class="btn" data-key="jump">JUMP</div>
+
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+    }
+}
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+/* ===== SCENE & CAMERA ===== */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x101010);
+
+const camera = new THREE.PerspectiveCamera(
+  75,
+  innerWidth / innerHeight,
+  0.1,
+  1000
+);
+camera.position.set(8, 8, 12);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(innerWidth, innerHeight);
+renderer.setPixelRatio(devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+/* ===== ORBIT CONTROLS ===== */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.dampingFactor = 0.05;
+
+/* ===== LIGHT ===== */
+scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+directionalLight.position.set(10, 20, 10);
+scene.add(directionalLight);
+
+/* ===== GRID ===== */
+scene.add(new THREE.GridHelper(50, 50));
+
+/* ===== PLATFORMS WITH GENERATIABLE & LIMIT ===== */
+const platforms = [
+  {
+    position: { x: 0, y: 0, z: 0 },
+    size: { width: 2, height: 1, depth: 2 },
+    color: 0x4caf50,
+    floor: true,
+    wall: false,
+    generatiable: true,
+    generatiableLimit: 3, // platform can generate 3 times
+    generatedCount: 0
+  }
+];
+
+const platformMeshes = [];
+
+/* ===== ADD PLATFORM FUNCTION ===== */
+function addPlatform(p) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(p.size.width, p.size.height, p.size.depth),
+    new THREE.MeshStandardMaterial({ color: p.color })
+  );
+  mesh.position.set(
+    p.position.x,
+    p.position.y + p.size.height / 2,
+    p.position.z
+  );
+  mesh.userData = p;
+  scene.add(mesh);
+  platformMeshes.push(mesh);
+}
+
+/* ===== PROCEDURAL GENERATION ===== */
+function generatePlatforms() {
+  const newPlatforms = [];
+
+  platforms.forEach(p => {
+    if (!p.generatiable) return;
+
+    const limit = p.generatiableLimit;
+    if (limit !== "infinite" && p.generatedCount >= limit) return;
+
+    const dirs = [
+      { x: 1, z: 0 },
+      { x: -1, z: 0 },
+      { x: 0, z: 1 },
+      { x: 0, z: -1 },
+      { x: 1, z: 1 },
+      { x: 1, z: -1 },
+      { x: -1, z: 1 },
+      { x: -1, z: -1 }
+    ];
+
+    dirs.forEach(dir => {
+      const newX = p.position.x + dir.x * p.size.width;
+      const newZ = p.position.z + dir.z * p.size.depth;
+      const newY = p.position.y;
+
+      const exists = platforms.some(pl =>
+        pl.position.x === newX &&
+        pl.position.y === newY &&
+        pl.position.z === newZ
+      );
+      if (!exists) {
+        const newPlatform = {
+          position: { x: newX, y: newY, z: newZ },
+          size: { width: 2, height: 1, depth: 2 },
+          color: 0x4caf50,
+          floor: true,
+          wall: false,
+          generatiable: Math.random() < 0.3,
+          generatiableLimit: 2, // limit for newly generated platforms
+          generatedCount: 0
+        };
+        newPlatforms.push(newPlatform);
+      }
+    });
+
+    // Increment count after generating neighbors
+    p.generatedCount++;
+  });
+
+  newPlatforms.forEach(p => {
+    platforms.push(p);
+    addPlatform(p);
+  });
+
+  if (newPlatforms.length > 0) {
+    generatePlatforms();
+  }
+}
+
+/* ===== INITIAL PLATFORM CREATION ===== */
+platforms.forEach(p => addPlatform(p));
+generatePlatforms();
+
+/* ===== PLAYER ===== */
+const playerData = {
+  position: { x: 0, y: 2, z: 0 },
+  size: { width: 1, height: 2, depth: 1 },
+  color: 0xff8800,
+  movement: { speed: 0.15, jumpForce: 0.35 }
+};
+
+const player = new THREE.Mesh(
+  new THREE.BoxGeometry(playerData.size.width, playerData.size.height, playerData.size.depth),
+  new THREE.MeshStandardMaterial({ color: playerData.color })
+);
+player.position.set(playerData.position.x, playerData.position.y, playerData.position.z);
+scene.add(player);
+
+/* ===== PHYSICS ===== */
+let velocityY = 0;
+let grounded = false;
+const gravity = -0.015;
+
+/* ===== INPUT ===== */
+const keys = {};
+addEventListener("keydown", e => keys[e.code] = true);
+addEventListener("keyup", e => keys[e.code] = false);
+
+document.querySelectorAll(".btn").forEach(btn => {
+  const key = btn.dataset.key;
+  btn.addEventListener("touchstart", () => keys[key] = true);
+  btn.addEventListener("touchend", () => keys[key] = false);
+});
+
+/* ===== COLLISION ===== */
+function checkCollisions() {
+  grounded = false;
+
+  platformMeshes.forEach(p => {
+    const top = p.position.y + p.userData.size.height / 2;
+
+    // Floor collision
+    if (p.userData.floor) {
+      const withinX = Math.abs(player.position.x - p.position.x) < p.userData.size.width / 2;
+      const withinZ = Math.abs(player.position.z - p.position.z) < p.userData.size.depth / 2;
+      if (withinX && withinZ) {
+        if (player.position.y - playerData.size.height / 2 <= top + 0.05 &&
+            player.position.y - playerData.size.height / 2 >= top - 0.2 &&
+            velocityY <= 0) {
+          grounded = true;
+          velocityY = 0;
+          player.position.y = top + playerData.size.height / 2;
+        }
+      }
+    }
+
+    // Wall collision
+    if (p.userData.wall) {
+      const halfPlayerX = playerData.size.width / 2;
+      const halfPlayerZ = playerData.size.depth / 2;
+      const halfWallX = p.userData.size.width / 2;
+      const halfWallZ = p.userData.size.depth / 2;
+
+      const deltaX = player.position.x - p.position.x;
+      const deltaZ = player.position.z - p.position.z;
+
+      const overlapX = halfPlayerX + halfWallX - Math.abs(deltaX);
+      const overlapZ = halfPlayerZ + halfWallZ - Math.abs(deltaZ);
+
+      if (overlapX > 0 && overlapZ > 0) {
+        if (overlapX < overlapZ) {
+          player.position.x += deltaX > 0 ? overlapX : -overlapX;
+        } else {
+          player.position.z += deltaZ > 0 ? overlapZ : -overlapZ;
+        }
+      }
+    }
+  });
+}
+
+/* ===== ANIMATION LOOP ===== */
+function animate() {
+  requestAnimationFrame(animate);
+
+  // Movement
+  if (keys["KeyW"] || keys.forward) player.position.z -= playerData.movement.speed;
+  if (keys["KeyS"] || keys.back) player.position.z += playerData.movement.speed;
+  if (keys["KeyA"] || keys.left) player.position.x -= playerData.movement.speed;
+  if (keys["KeyD"] || keys.right) player.position.x += playerData.movement.speed;
+
+  // Gravity
+  velocityY += gravity;
+  player.position.y += velocityY;
+
+  // Collisions
+  checkCollisions();
+
+  // Jump
+  if ((keys["Space"] || keys.jump) && grounded) {
+    velocityY = playerData.movement.jumpForce;
+    grounded = false;
+  }
+
+  // Camera follow
+  controls.target.copy(player.position);
+  controls.update();
+
+  renderer.render(scene, camera);
+}
+
+animate();
+
+/* ===== RESIZE ===== */
+addEventListener("resize", () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+</script>
+</body>
+</html>
